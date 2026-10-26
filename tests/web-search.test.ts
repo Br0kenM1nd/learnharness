@@ -226,7 +226,7 @@ describe("keyless research dispatch (jobTools)", () => {
 	it("searchAvailable: false → research remains in the registry", () => {
 		const tools = jobTools(fakeCtx(() => false));
 		assert.ok(tools.research, "research can fetch supplied URLs without a search provider");
-		assert.ok(tools.demo && tools.visual && tools.pdf, "the search-less server keeps its other sub-agents");
+		assert.ok(!tools.demo && tools.visual && !tools.pdf, "the search-less server keeps its other sub-agents");
 	});
 
 	it("keyless dispatch preserves the async job acknowledgement and spawn contract", async () => {
@@ -279,7 +279,7 @@ describe("keyless role registries", () => {
 			searchAvailable: () => false,
 		});
 		assert.ok(tools.research, "no search key is required to dispatch research");
-		assert.ok(tools.demo && tools.visual && tools.pdf, "the other job tools survive");
+		assert.ok(!tools.demo && tools.visual && !tools.pdf, "the other job tools survive");
 	});
 
 	it("createTeacherTools: available keeps research", () => {
@@ -300,7 +300,7 @@ describe("keyless role registries", () => {
 			spawn: () => {},
 			searchAvailable: () => true,
 		});
-		assert.ok(on.research && on.pdf, "the owner ruling: research + pdf in the probe phase");
+		assert.ok(on.research && !on.pdf, "the owner ruling: research + pdf in the probe phase");
 
 		const off = createProberTools({
 			...ctxBase,
@@ -310,7 +310,7 @@ describe("keyless role registries", () => {
 			searchAvailable: () => false,
 		});
 		assert.ok(off.research, "keyless research dispatch is available in the prober too");
-		assert.ok(off.pdf && off.probe_done, "pdf is keyless — it survives; probe_done always-on");
+		assert.ok(!off.pdf && off.probe_done, "pdf is keyless — it survives; probe_done always-on");
 	});
 
 	it("createProberTools: the user toggle still drops research without search keys", () => {
@@ -319,7 +319,7 @@ describe("keyless role registries", () => {
 			{ research: false },
 		);
 		assert.equal("research" in tools, false, "toggle-filtered like the teacher side");
-		assert.ok(tools.pdf, "pdf unaffected by a research toggle");
+		assert.ok(!tools.pdf, "pdf unaffected by a research toggle");
 	});
 
 	it("createTeacherTools: the user toggle still drops research without search keys", () => {
@@ -328,6 +328,6 @@ describe("keyless role registries", () => {
 			{ research: false },
 		);
 		assert.equal("research" in tools, false);
-		assert.ok(tools.pdf && tools.demo && tools.visual);
+		assert.ok(!tools.pdf && !tools.demo && tools.visual);
 	});
 });

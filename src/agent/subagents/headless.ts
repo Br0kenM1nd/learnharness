@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { standardFontsDir } from "./pdf-ops";
+import { EXECUTABLE_ARTIFACTS_ENABLED } from "../../core/security-policy.ts";
+import { validateStaticSvg } from "./static-svg.ts";
 
 /**
  * Verification engines for sub-agents: demos use the app's own Electron
@@ -140,6 +142,8 @@ export function browserServiceSpawnEnv(
 	// The artifact renderer is not an authorized app API client.
 	delete out.LH_DESKTOP_API_SECRET;
 	delete out.LH_DESKTOP_SERVER;
+	// A rendering helper never needs provider keys or the vault master key.
+	for (const name of Object.keys(out)) if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name)) delete out[name];
 	return out;
 }
 
@@ -263,7 +267,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 		// Explicit path when we found one; otherwise let puppeteer resolve the
 		// system Chrome install itself via the "chrome" channel.
 		...(executablePath ? { executablePath } : { channel: "chrome" as const }),
-		args: ["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+		args: ["--disable-gpu", "--disable-dev-shm-usage"],
 	});
 	try {
 		const page = await browser.newPage();
@@ -281,6 +285,7 @@ function tempDir(prefix: string): string {
 // ─── Demo execution ──────────────────────────────────────────────────────────
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
+	if (!EXECUTABLE_ARTIFACTS_ENABLED) throw new Error("Executable demonstrations are disabled by application policy.");
 	const settleMs = opts.settleMs ?? 2000;
 	const dir = tempDir("lh-demo-");
 	const file = path.join(dir, "demo.html");
@@ -413,50 +418,17 @@ function crc32(buf: Buffer): number {
 }
 
 async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buffer> {
-	// NATIVE FIRST (Wave E stage 2, owner 2026-10-10): resvg rasterizes
-	// static SVG in-process — visual-maker SVGs never execute script, so a
-	// browser adds nothing but a process. White background mirrors the old
-	// Chrome page (html,body{background:#fff}); fitTo width mirrors
-	// svgViewport semantics (attrs win, viewBox-only gets the 900 default,
-	// opts override). The browser path below stays as the fallback for
-	// exotic-SVG features resvg cannot parse — failures there used to be
-	// the ONLY path, so nothing regresses.
+	// Never fall back to embedding model-authored SVG in executable HTML.
+	validateStaticSvg(svg);
 	const { width } = svgViewport(svg, opts);
-	try {
-		const { Resvg } = await import("@resvg/resvg-js");
-		const resvg = new Resvg(svg, {
-			fitTo: { mode: "width", value: width },
-			font: { loadSystemFonts: true },
-			background: "#ffffff",
-		});
-		return providerSafePng(resvg.render().asPng());
-	} catch {
-		/* fall through to the browser path */
-	}
-	const dir = tempDir("lh-visual-");
-	const file = path.join(dir, "figure.html");
-	fs.writeFileSync(
-		file,
-		`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}svg{display:block}</style></head><body>${svg}</body></html>`,
-		"utf-8",
-	);
-
-	return withBrowserPage(async (page) => {
-		const { width, height } = svgViewport(svg, opts);
-		await page.setViewport({ width, height });
-		await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
-		const shot = (await page.screenshot({ fullPage: true, type: "png" })) as Buffer;
-		// Chrome's raw split-IDAT PNG is canonicalized before it reaches a
-		// provider (see providerSafePng) — the visual-maker feeds this exact
-		// buffer back to the vision model as its only way to "look".
-		return providerSafePng(Buffer.from(shot));
-	}).finally(() => {
-		try {
-			fs.rmSync(dir, { recursive: true, force: true });
-		} catch {
-			/* best-effort cleanup */
-		}
+	const { Resvg } = await import("@resvg/resvg-js");
+	const resvg = new Resvg(svg, {
+		fitTo: { mode: "width", value: Math.min(width, 2048) },
+		font: { loadSystemFonts: true },
+		background: "#ffffff",
 	});
+	if (!Number.isFinite(resvg.width * resvg.height) || resvg.width * resvg.height > 16_000_000) throw new Error("SVG exceeds the rendering pixel limit.");
+	return providerSafePng(resvg.render().asPng());
 }
 
 // ─── PDF page rasterization (pdfjs paints, Skia hosts) ─────────────────

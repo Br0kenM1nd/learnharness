@@ -19,11 +19,8 @@ import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type Visua
 import { planTools, type PlanToolContext } from "./tools/plan.ts";
 import { probeDoneTool, type ProbeDoneContext } from "./tools/probe.ts";
 import { proberGraphTools } from "./tools/graph.ts";
-import { readTool } from "./tools/read.ts";
-import { lsTool } from "./tools/ls.ts";
-import { findTool } from "./tools/find.ts";
-import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
+import { restrictAgentTools } from "./capabilities.ts";
 import type { GraphStore } from "../core/ports.ts";
 
 export { jobTools };
@@ -314,26 +311,13 @@ export function createProberTools(
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
-	return healToolRecord({
+	return healToolRecord(restrictAgentTools({
 		...filterEnabledTools(
 			{
 				...quizzing,
 				ask_user_question: askUserQuestionTool,
-				// The learner-filesystem set is always-on (user-decided 2026-09,
-				// sources v1): the prober inspects and LOCATES learner-referenced
-				// files while assessing the edge. Read-only by construction.
-				read: readTool,
-				ls: lsTool,
-				find: findTool,
-				grep: grepTool,
-				// Job dispatch in the probe phase (owner ruling, 2026-09-20):
-				// research + pdf are ALWAYS available in every phase — the
-				// prober can verify facts or read learner PDFs while assessing.
-				// demo/visual stay teach-phase-only (they need the lesson's plan
-				// context). Same user-toggle filtering as the teacher; research
-				// remains available without a search-provider key.
+				// Only research and graph data are available during assessment.
 				...(jobs.research ? { research: jobs.research } : {}),
-				pdf: jobs.pdf!,
 				// The map reader (wave 7): present only when the settings gate
 				// opened.
 				...(ctx.graphStore
@@ -344,7 +328,7 @@ export function createProberTools(
 				withoutMechanics(enabled),
 			),
 			...done,
-		});
+		}));
 }
 
 // ─── the teacher's question tools (quiz carries the position field) ──────────
@@ -445,22 +429,15 @@ export function createTeacherTools(
 		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
-		filterEnabledTools(
+		restrictAgentTools(filterEnabledTools(
 			{
 			...quizzing,
 			ask_user_question: askUserQuestionTool,
-			// The learner-filesystem set is always-on (user-decided 2026-09,
-			// sources v1): the teacher locates and reads learner-referenced
-			// files on its own terms — nothing auto-injects. Read-only by
-			// construction (fs-shared.ts).
-			read: readTool,
-			ls: lsTool,
-			find: findTool,
-			grep: grepTool,
+			// Material comes from explicit imports; no host filesystem tools.
 			...planTools(ctx),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
 		},
 		withoutMechanics(enabled),
-		),
+		)),
 	);
 }

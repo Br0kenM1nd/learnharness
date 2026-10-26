@@ -21,6 +21,7 @@
  */
 
 import assert from "node:assert/strict";
+import { writeRecord } from "../electron/credential-vault.cjs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -45,7 +46,7 @@ const AUTH = path.join(TMP, "auth.json");
 process.env.LH_AUTH_FILE = AUTH;
 
 // The file BEFORE first boot: one file-only key.
-fs.writeFileSync(AUTH, JSON.stringify({ OPENAI_API_KEY: "sk-file-fresh-file-fresh" }));
+writeRecord(AUTH, { OPENAI_API_KEY: "sk-file-fresh-file-fresh" });
 
 // The env the switch must hide — set BEFORE the module's first import:
 //  - an env-ONLY provider key (the engine-path specimen)

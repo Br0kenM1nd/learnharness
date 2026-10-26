@@ -8,6 +8,7 @@ import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import type { ArtifactPartProps, DemoResult } from "@/src/core";
+import { EXECUTABLE_ARTIFACTS_ENABLED } from "@/src/core";
 
 /**
  * Demo artifact card (W6): while the part is input-available, a job activity
@@ -100,6 +101,7 @@ export function DemoOutputCard({
 	messageId?: string;
 	initialInverted?: boolean;
 }) {
+	if (!EXECUTABLE_ARTIFACTS_ENABLED) return <p className="text-sm text-muted-foreground">Interactive demos are disabled in this version.</p>;
 	const result = output as DemoResult | undefined;
 	if (!result || typeof result.html !== "string" || typeof result.title !== "string") {
 		return (

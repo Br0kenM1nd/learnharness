@@ -30,6 +30,7 @@ import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
 import { runResearcherAgent } from "./researcher.ts";
 import { runVisualMaker } from "./visual-maker.ts";
+import { jobAllowed } from "../capabilities.ts";
 
 /**
  * The background job runner (contracts.ts "THE ASYNC PROTOCOL" §2–3), created
@@ -65,6 +66,9 @@ export const pdfModelOverride: { current?: PiEngine } = {};
 type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
 
 export interface JobRunnerDeps {
+	/** Composition-time worker policy. Production uses the restricted default;
+	 * isolated tests can exercise retired worker implementations with fakes. */
+	jobAllowed?: (kind: JobKind) => boolean;
 	chatStore: ChatStore;
 	jobStore: JobStore;
 	/**
@@ -195,6 +199,10 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			return;
 		}
 		if (job.status !== "running") return; // already finished / re-run after crash recovery
+		if (!(deps.jobAllowed ?? jobAllowed)(job.kind)) {
+			jobStore.updateJob(jobId, { status: "error", error: "This job is disabled by the application's security policy.", activity: "disabled" });
+			return;
+		}
 		const run = KIND_RUNNERS[job.kind];
 		if (!run) {
 			console.error(`[job ${jobId}] unknown kind: ${job.kind}`);

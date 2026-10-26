@@ -22,6 +22,7 @@ import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
+import { restrictAgentTools } from "./capabilities.ts";
 
 /**
  * The two teaching-side agents (docs/probe-teach-split.md): the PROBER and
@@ -201,7 +202,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			// Match Claude across providers (including OpenRouter), not the API
 			// transport. Explicit test registries remain caller-owned.
 			tools: [
-				...tools,
+				...Object.values(restrictAgentTools(Object.fromEntries(tools.map((tool) => [tool.name, tool])))),
 				...(opts.tools === undefined && engine.model.id.toLowerCase().includes("claude")
 					? [withArgumentHeal(sendToUserTool)]
 					: []),

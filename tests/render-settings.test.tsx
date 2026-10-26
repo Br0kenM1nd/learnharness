@@ -133,7 +133,7 @@ describe("AgentSection (thin SSR)", () => {
 	});
 
 	it("renders the owner's FINAL tool list — research, demo, visual, pdf", () => {
-		assert.deepEqual([...TOGGLE_TOOLS], ["research", "demo", "visual", "pdf"]);
+		assert.deepEqual([...TOGGLE_TOOLS], ["research", "visual"]);
 		const html = renderToStaticMarkup(<AgentSection agent={undefined} models={undefined} graph={undefined} onSectionChange={() => {}} onModelsChange={() => {}} />);
 		for (const id of TOGGLE_TOOLS) assert.ok(html.includes(`data-testid="tool-row-${id}"`), id);
 	});
@@ -157,7 +157,7 @@ describe("AgentSection (thin SSR)", () => {
 		// The trigger shows the stored id even with no catalog loaded (a
 		// trigger reading "Default" over a live override would lie).
 		assert.ok(html.includes("glm-4.7-flash"), "the override id is visible (prettyModel form, no auto-caps)");
-		assert.ok(tagOf(html, "toggle-tool-demo").includes('aria-checked="false"'), "demo off");
+		assert.ok(!html.includes("toggle-tool-demo"), "retired demos cannot be enabled");
 		assert.ok(tagOf(html, "toggle-tool-visual").includes('aria-checked="true"'), "visual still on");
 	});
 

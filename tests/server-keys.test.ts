@@ -13,6 +13,7 @@
  */
 
 import assert from "node:assert/strict";
+import { writeRecord } from "../electron/credential-vault.cjs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -40,13 +41,10 @@ process.env.LH_AUTH_FILE = AUTH;
 
 // The file BEFORE first boot: a shadowed OpenRouter (env will differ) + an
 // unknown var that must survive every write and surface as a generic row.
-fs.writeFileSync(
-	AUTH,
-	JSON.stringify({
-		OPENROUTER_API_KEY: "sk-or-v1-filefilefile",
-		FUTURE_PLANS_TOKEN: "opaque-plans-token",
-	}),
-);
+writeRecord(AUTH, {
+	OPENROUTER_API_KEY: "sk-or-v1-filefilefile",
+	FUTURE_PLANS_TOKEN: "opaque-plans-token",
+});
 // Real env (set BEFORE the module's first import → boot snapshots it):
 process.env.OPENROUTER_API_KEY = "sk-or-v1-envvalue99";
 

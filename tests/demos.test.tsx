@@ -48,7 +48,7 @@ import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
 import { JobCard, PdfJobCard } from "../components/artifacts/job-card.tsx";
 import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
-import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
+import { demoInputSchema, jobToolDefinitions as jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
 import { runDemoBuilder } from "../src/agent/subagents/demo-builder.ts";
 import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
 import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/agent/subagents/runner.ts";
@@ -71,7 +71,7 @@ import type { PiEngine } from "../src/agent/models.ts";
  */
 function testRunner() {
 	const steers: SteerMessage[] = [];
-	const runner = createJobRunner({
+	const runner = createJobRunner({ jobAllowed: () => true,
 		chatStore,
 		jobStore,
 		deliver: async (steer) => {
@@ -353,14 +353,9 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ title: "Damped oscillator", html: DEMO_HTML, tested: true },
 		);
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /sandbox="allow-scripts"/);
-		assert.ok(!html.includes("allow-same-origin"), "never allow-same-origin");
-		assert.match(html, /demo-resize/);
-		assert.match(html, /demo-error/);
-		assert.match(html, /Damped oscillator/);
-		assert.match(html, /interactive demo/i);
-		// the model-facing protocol text never renders for the learner
-		assert.ok(!html.includes("do NOT wait"), "no protocol glue in the bubble");
+		assert.match(html, /Interactive demos are disabled/);
+		assert.ok(!html.includes("<iframe"));
+		assert.ok(!html.includes("srcdoc="));
 	});
 
 	it("renders the demo failure note with no iframe when the build FAILED", () => {
@@ -369,8 +364,9 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ title: "T", html: "", tested: true, notes: "FAILED: never passed verification" },
 		);
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /FAILED: never passed verification/);
-		assert.ok(!html.includes("<iframe"), "no iframe for a failed build");
+		assert.match(html, /Interactive demos are disabled/);
+		assert.ok(!html.includes("<iframe"));
+		assert.ok(!html.includes("srcdoc="));
 	});
 
 	it("renders the verified svg as an image; the maker's notes are glue and stay hidden", () => {
@@ -489,12 +485,9 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 			{ title: "Wave interference", html: DEMO_HTML, tested: true },
 		);
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /scrolling="no"/, "no internal scrollbar — the wheel chains to the session");
-		assert.match(html, /toggle-invert-demo-brightness/, "the invert switch (house Toggle)");
-		assert.match(html, /data-testid="demo-download"/);
-		assert.ok(!html.includes("hue-rotate"), "inversion is OFF by default — a manual toggle only");
-		assert.match(html, /interactive demo/, "the kind label lives in the caption header");
-		assert.match(html, /Wave interference/, "the title rides beside the kind label");
+		assert.match(html, /Interactive demos are disabled/);
+		assert.ok(!html.includes("<iframe"));
+		assert.ok(!html.includes("srcdoc="));
 	});
 
 	it("figure card: invert + download buttons; NO fullscreen button without a chat page (the context is null there)", () => {
@@ -961,27 +954,8 @@ describe("demo/visual job runners", () => {
 			if (ack.status !== 200) assert.fail(`expected 200 ack, got ${ack.status}: ${await ack.text()}`);
 			await drainRunning(chat.id);
 
-			const job = jobStore.findJobByToolCallId(chat.id, "call-d2");
-			assert.ok(job, "dispatch created a job at tool-execute time");
-			assert.equal(job!.kind, "demo");
-			createdJobs.push(job!.id);
-
-			// The background runner (fire-and-forget) completes with the overrides.
-			await waitFor(() => jobStore.getJob(job!.id)!.status !== "running", 8000, "demo job completion");
-			const done = jobStore.getJob(job!.id)!;
-			assert.equal(done.status, "done");
-
-			const saved = projectNative(chatStore.getChat(chat.id)!.messages);
-			const part = saved[1]!.parts.find((p) => p.type === "tool-demo");
-			assert.ok(part && part.type === "tool-demo", "demo tool part persisted");
-			assert.equal(part.state, "output-available", "the part resolved with the ack at dispatch time");
-			assert.match(String((part as { output?: unknown }).output), /fire-and-forget/);
-
-			assert.equal(steers.length, 1, "one job, one steer");
-			assert.equal((steers[0]!.details as { jobId: string }).jobId, job!.id);
-
-			// Idempotency: dispatch dedupes by toolCallId — no second job.
-			assert.equal(jobStore.listJobs(chat.id).length, 1, "no duplicate job for the same tool part");
+			assert.equal(jobStore.findJobByToolCallId(chat.id, "call-d2"), null, "disabled model calls never create an executable job");
+			assert.equal(steers.length, 0);
 		} finally {
 			demoModelOverride.current = undefined;
 			headlessOverride.current = undefined;

@@ -14,4 +14,5 @@ export function proxy(request: NextRequest) {
 	return NextResponse.next();
 }
 
-export const config = { matcher: "/api/:path*" };
+// Pages carry server-rendered conversation data too. Protect every entry point.
+export const config = { matcher: "/:path*" };
