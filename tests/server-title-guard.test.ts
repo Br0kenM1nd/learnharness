@@ -90,19 +90,19 @@ describe("macOS backend process.title guard", () => {
 	}
 });
 
-async function serverLaunch(platform: string) {
+async function serverLaunch(platform: string, development = false) {
 	let launch!: { binary: string; args: string[]; options: { cwd: string; env: Record<string, string>; stdio: string[] } };
 	const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
 	const context = {
 		require: (id: string) => id === "electron" ? {
-			app: { setName() {}, requestSingleInstanceLock: () => false, quit() {}, getPath: () => "/fixture/user-data" },
+			app: { setName() {}, setPath() {}, requestSingleInstanceLock: () => false, quit() {}, getPath: () => "/fixture/user-data" },
 		} : id === "node:child_process" ? {
 			spawn(binary: string, args: string[], options: typeof launch.options) {
 				launch = JSON.parse(JSON.stringify({ binary, args, options }));
 				return child;
 			},
 		} : mainRequire(id),
-		process: { platform, argv: [], env: { FIXTURE: "kept" }, on() {}, execPath: "/fixture/LearnHarness", resourcesPath: "/fixture/resources with spaces" },
+		process: { platform, argv: [], env: { FIXTURE: "kept", ...(development ? { LH_DESKTOP_DEV: "1" } : {}) }, on() {}, execPath: "/fixture/LearnHarness", resourcesPath: "/fixture/resources with spaces" },
 		__dirname: path.dirname(mainFile),
 	};
 	runInNewContext(mainSource, context, { filename: mainFile });
@@ -111,6 +111,13 @@ async function serverLaunch(platform: string) {
 }
 
 describe("backend-only preload wiring and packaging", () => {
+	it("development uses the private IPC supervisor instead of the stock CLI's unconnected grandchild", async () => {
+		const launch = await serverLaunch("darwin", true);
+		assert.deepEqual(launch.args, [path.join(root, "electron/dev-server.cjs")]);
+		assert.equal(launch.options.cwd, root.replace(/\/$/, ""));
+		assert.equal(launch.options.env.LH_DESKTOP_SERVER, "1");
+		assert.equal(launch.options.env.NODE_USE_ENV_PROXY, "1");
+	});
 	for (const platform of ["darwin", "win32", "linux"]) {
 		it(`${platform} uses the real server launch with the intended argument order`, async () => {
 			const launch = await serverLaunch(platform);

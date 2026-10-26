@@ -17,6 +17,7 @@
 		"build": "next build",
 		"start": "npm run desktop:dev",
 		"test": "NODE_ENV=test tsx --import ./tests/setup-vault.mjs --test tests/*.test.ts tests/*.test.tsx",
+		"test:desktop:dev": "ELECTRON_RUN_AS_NODE=1 electron scripts/smoke-desktop-dev.mjs",
 		"lint": "eslint .",
 		"typecheck": "tsc --noEmit",
 		"desktop:dev": "LH_DESKTOP_DEV=1 electron .",

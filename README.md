@@ -9,6 +9,10 @@ The owner-confirmed VPS proxy endpoint is pinned in
 `http://127.0.0.1:7890`. Keep the local proxy client running; outbound Node
 connections fail when it is unavailable rather than falling back to a direct route.
 
+`npm run test:desktop:dev` checks the real Next.js development worker, private
+account/model IPC, model selection, and config restart using a temporary profile
+and artificial credentials. It makes no AI generation requests.
+
 See [fork setup, security changes, and verification](docs/security-hardening.md).
 The upstream project and its original author are described below.
 

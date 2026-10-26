@@ -214,7 +214,7 @@ function startServer(port) {
 			// Only the macOS backend needs this: Next's native title setter
 			// otherwise checks this Node-mode process in as a foreground app.
 			development
-				? [path.join(__dirname, "..", "node_modules", "next", "dist", "bin", "next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)]
+				? [path.join(__dirname, "dev-server.cjs")]
 				: process.platform === "darwin"
 				? ["--require", path.join(process.resourcesPath, "server-title-guard.cjs"), serverEntry()]
 				: [serverEntry()],

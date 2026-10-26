@@ -152,3 +152,40 @@ The app must be fully quit and restarted for main-process networking changes.
 A fresh interactive ChatGPT sign-in is still required to verify the user's real
 account. The old callback code must not be replayed. This follow-up did not build
 or publish an installer.
+
+## Connected-account development catalog follow-up
+
+After the owner successfully signed in, `/api/models` still waited exactly 45
+seconds and returned no ChatGPT choices. The stock `next dev` CLI forks the
+request-handling worker and does not forward application IPC packets to its own
+parent. Electron was connected to the CLI, so catalog and token-lease requests
+from the actual worker never reached the account controller.
+
+The development launcher now supervises Next's actual request worker and relays
+only `lh:chatgpt` and `lh:subscriptions` over inherited Node IPC. It keeps the
+fixed loopback port and configured VPS proxy, restarts the worker when Next
+requests it, and terminates the worker when the parent disconnects. No credential
+HTTP endpoint or renderer token bridge was added. Packaged-server startup is
+unchanged.
+
+Verification on 26 October 2026:
+
+- A read-only request using the connected account returned HTTP 200 and eight
+  visible catalog entries. This used the encrypted credential store in memory
+  and the pinned proxy; tokens, account identity and response bodies were not
+  logged. No token refresh, credential write or inference was performed.
+- `scripts/smoke-desktop-dev.mjs --legacy-cli` reproduced the broken topology:
+  the catalog request timed out, and Electron received zero model requests.
+- `npm run test:desktop:dev` passed against the real installed Next 16.4.3 dev
+  worker and actual application catalog/settings route handlers. Initial catalog
+  and lease completed in 92 ms; the main model selection was saved successfully;
+  a real config-triggered worker restart preserved catalog/lease access. Requests
+  without the desktop capability still returned 403. All account responses and
+  lease tokens in this test were artificial; provider network requests: zero.
+- Complete suite on bundled Node 24.22.0: **2367 passed, 0 failed, 0 skipped**.
+- `npm run typecheck`, `npm run lint`, and `git diff --check`: passed.
+
+Fully quit Electron and run `npm run desktop:dev` again to replace the old CLI
+process tree. The saved account is retained. Select the main session model in
+Settings → Agent → Strong. Live inference against the owner's plan was not run
+as part of this diagnosis.
