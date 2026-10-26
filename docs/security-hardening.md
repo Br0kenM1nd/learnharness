@@ -52,8 +52,37 @@ npm run desktop:dev
 
 Dependency lifecycle scripts are skipped. The separate Electron install command
 fetches the official runtime and verifies the package's checksums. No AI key is
-required to open the app. Enter a separate limited provider key in application
-settings when testing a lesson; never commit or send it in chat.
+required to open the app. Use ChatGPT → Connect to authorize plan usage, or enter
+a separate limited provider key in application settings. Never commit or send
+credentials or callback codes in chat.
+
+### Required VPS proxy route
+
+`electron/network-config.json` pins the owner-confirmed local HTTP proxy endpoint
+`http://127.0.0.1:7890`. Its upstream VPS is managed by the existing proxy client,
+not by LearnHarness. Keep that client running. This configuration is shipped with
+the Electron shell, so it also applies when launching from Finder without shell
+environment variables.
+
+The main process explicitly configures Node's global HTTP/HTTPS/fetch proxy
+dispatcher before OAuth, token refresh, or model discovery. The embedded server
+receives the same HTTP(S) proxy and `NODE_USE_ENV_PROXY=1` before startup, covering
+model inference and other outbound Node requests. Inherited proxy URLs and
+`NO_PROXY` exclusions cannot bypass this configured route. Only `localhost`,
+`127.0.0.1`, and IPv6 loopback bypass the proxy, keeping private app traffic local.
+There is no direct-network retry when the proxy fails. Change the JSON endpoint
+and fully restart Electron if the existing VPS proxy endpoint changes. Do not
+commit proxy passwords to the configuration.
+
+The system browser handles the interactive OpenAI sign-in page separately and
+uses its own networking configuration. LearnHarness controls the subsequent
+native code exchange, token refresh, account catalog, and model requests.
+
+Sign-in distinguishes an unsupported network location, account eligibility, HTTP
+401/403, and a rejected authorization code. Only a rejected refresh grant is
+treated as an expired saved session. Provider response bodies and OAuth codes are
+not displayed or logged. The connection notices now describe encrypted desktop
+storage and the Keychain-protected encryption key.
 
 macOS may request access to Keychain. The app refuses to store credentials if the
 OS encryption provider is unavailable. No signing certificate is needed for source
@@ -70,7 +99,7 @@ in learning material. Local PDF paths and executable demos are unavailable.
 expose an unauthenticated browser application. Use `npm run build` for the Next
 server build. Do not set `LH_DEV_URL`; external servers are deliberately refused.
 
-## Verification
+## Initial hardening verification
 
 Executed on 26 October 2026 with artificial credentials and temporary files:
 
@@ -98,3 +127,28 @@ all dependencies or future changes are safe.
 Models, optional research and dictation still use external services. Learning
 history and graph records remain local plaintext data. This is a personal desktop
 application, not an OS sandbox for running arbitrary code or a multi-user server.
+
+## OAuth/VPS follow-up verification
+
+Also executed on 26 October 2026:
+
+- Reproduced the original transport failure with a synthetic authorization code:
+  direct embedded Node received HTTP 403 `unsupported_country_region_territory`;
+  the existing configured proxy returned HTTP 400 `invalid_grant`, as expected
+  for the deliberately invalid code. No user callback code or credentials were
+  used in these probes.
+- Complete suite after the fix on bundled Node 24.22.0: **2361 passed, 0 failed,
+  0 skipped**, including actual local proxy traffic, a spawned server process,
+  private loopback bypass, unavailable-proxy refusal, sign-in error classification,
+  and the existing PKCE/nonce/token validation checks.
+- `npm run typecheck`, `npm run lint`, and `git diff --check`: passed.
+- An isolated native Electron process, with inherited shell proxy settings removed
+  and `NO_PROXY=*`, used the pinned JSON configuration successfully. Its separately
+  spawned Node process used the same endpoint. Both got the expected HTTP 400
+  `invalid_grant` from OpenAI for artificial codes. Neither touched the user's
+  Keychain or OAuth store.
+
+The app must be fully quit and restarted for main-process networking changes.
+A fresh interactive ChatGPT sign-in is still required to verify the user's real
+account. The old callback code must not be replayed. This follow-up did not build
+or publish an installer.

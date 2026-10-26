@@ -122,6 +122,10 @@ describe("backend-only preload wiring and packaging", () => {
 			assert.equal(launch.options.cwd, path.dirname(entry));
 			assert.equal(launch.options.env.NODE_OPTIONS, undefined, "do not add NODE_OPTIONS to the child environment");
 			assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, "1");
+			assert.equal(launch.options.env.NODE_USE_ENV_PROXY, "1");
+			assert.equal(launch.options.env.HTTPS_PROXY, "http://127.0.0.1:7890/");
+			assert.equal(launch.options.env.https_proxy, launch.options.env.HTTPS_PROXY);
+			assert.equal(launch.options.env.no_proxy, "localhost,127.0.0.1,::1,[::1]");
 			assert.equal(launch.options.env.LH_DESKTOP_SERVER, "1");
 			assert.equal(launch.options.env.LH_DATA_DIR, path.join("/fixture/user-data", "data"));
 			assert.equal(launch.options.env.LH_AUTH_FILE, path.join("/fixture/user-data", "auth.json"));

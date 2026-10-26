@@ -7,6 +7,7 @@ import type { AdmissionScope, ChatGPTDispatchLifecycle } from "./chatgpt-request
 
 const USAGE = "https://chatgpt.com/settings/usage";
 export function chatGPTStreamError(message: string): string {
+	if (/unsupported_country_region_territory|network location is unsupported/.test(message)) return "OpenAI rejected the connection because its network location is unsupported. Check the configured proxy route. No API-key fallback was used.";
 	if (/subscription_sharing_usage_limit_exceeded|quota|429/.test(message)) return `ChatGPT plan usage limit reached. Manage usage at ${USAGE}. No API-key fallback was used.`;
 	if (/scope|authorization_context|permission/.test(message)) return "ChatGPT plan permission is missing. Reconnect in Providers and authorize plan use. No API-key fallback was used.";
 	if (/expired|invalid_grant|401|invalid_user/.test(message)) return "Your ChatGPT session expired. Reconnect in Providers. No API-key fallback was used.";

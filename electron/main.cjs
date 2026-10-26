@@ -32,6 +32,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { desktopNetworkEnvironment, configureDesktopNetwork } = require("./network-proxy.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -220,7 +221,7 @@ function startServer(port) {
 			{
 				cwd: development ? path.join(__dirname, "..") : path.dirname(serverEntry()),
 				env: {
-					...process.env,
+					...desktopNetworkEnvironment(process.env),
 					ELECTRON_RUN_AS_NODE: "1",
 					NODE_ENV: development ? "development" : "production",
 					LH_CREDENTIAL_KEY: credentialKey,
@@ -667,6 +668,7 @@ async function main() {
 	await app.whenReady();
 	if (process.platform !== "darwin") throw new Error("This fork currently supports macOS only.");
 	if (process.env.LH_DEV_URL) throw new Error("External development servers are disabled. Use npm run desktop:dev.");
+	configureDesktopNetwork();
 	credentialKey = await loadMasterKey(path.join(app.getPath("userData"), "credential-key.enc"), safeStorage);
 
 	// Both development and packaged modes own their private loopback server.

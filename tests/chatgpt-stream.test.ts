@@ -111,10 +111,12 @@ test("no terminal completed is never success; late quota/incomplete streams are 
 
 test("OAuth failure and background denial NEVER use ambient OPENAI_API_KEY", async () => {
 	requests = [];
-	for (const error of ["expired ChatGPT session", "Background use is off", "catalog unavailable", "quota exceeded"]) {
+	for (const error of ["expired ChatGPT session", "Background use is off", "catalog unavailable", "quota exceeded", "unsupported_country_region_territory", "OpenAI rejected the connection because its network location is unsupported."]) {
 		leaseError = error;
 		const engine = piEngineForSpec({ provider: "chatgpt", id: model.id }, true);
-		assert.equal((await engine.streamFn(engine.model, context()).result()).stopReason, "error");
+		const result = await engine.streamFn(engine.model, context()).result();
+		assert.equal(result.stopReason, "error");
+		if (/unsupported/.test(error)) assert.match(result.errorMessage!, /network location is unsupported.*proxy/);
 	}
 	leaseError = null;
 	assert.equal(requests.length, 0);

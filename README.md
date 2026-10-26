@@ -4,6 +4,11 @@ This fork restricts agents to explicitly supplied learning material, protects
 provider credentials with macOS Keychain, and disables executable demonstrations
 and automatic updates. It uses a separate **LearnHarness Fork** data directory.
 
+The owner-confirmed VPS proxy endpoint is pinned in
+[`electron/network-config.json`](electron/network-config.json) to
+`http://127.0.0.1:7890`. Keep the local proxy client running; outbound Node
+connections fail when it is unavailable rather than falling back to a direct route.
+
 See [fork setup, security changes, and verification](docs/security-hardening.md).
 The upstream project and its original author are described below.
 
