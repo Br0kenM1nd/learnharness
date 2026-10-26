@@ -16,20 +16,23 @@
  *     read-only and native .node/dylib can't dlopen from one);
  *   - all mutable state under userData (never inside the .app bundle —
  *     translocated apps are read-only);
- *   - keys ride the child's ENV, never argv; auth.json (BYOK) is a flat
- *     {VAR: value} JSON map, plaintext, mode 0600 — server-managed since
+ *   - keys ride the child's ENV, never argv; auth.json (BYOK) is an encrypted
+ *     credential map, mode 0600, with a Keychain-protected master key — server-managed since
  *     the auth-keys wave (2026-09-19): the child reads/writes it DIRECTLY
  *     (LH_AUTH_FILE below) and reflects values into its own env. The old
  *     spawn-time env injection retired with that wave — a copy made here
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, session, shell } = require("electron");
-const { createChatGPT, fileStore } = require("./chatgpt.cjs");
+const { app, BrowserWindow, Menu, ipcMain, session, shell, safeStorage, dialog } = require("electron");
+const { loadMasterKey, vaultStore } = require("./credential-vault.cjs");
+const { validateState: validateSubscriptionState } = require("./subscription-store.cjs");
+const { createChatGPT } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { desktopNetworkEnvironment, configureDesktopNetwork } = require("./network-proxy.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -42,7 +45,7 @@ const path = require("node:path");
 // renderer owns the number; this is the IPC widen target).
 const SIDEBAR_AUTOCLOSE = 928;
 
-const PRODUCT_NAME = "LearnHarness";
+const PRODUCT_NAME = "LearnHarness Fork";
 
 // APP NAME → userData (owner, 2026-10-10): the Application Support dir is
 // exactly "LearnHarness" in dev AND packaged. Packaged Electron would
@@ -113,7 +116,7 @@ if (process.argv.includes("--browser-service")) {
 	// its own userData so (a) the single-instance lock — checked below — doesn't
 	// silently kill it, and (b) it never reads/writes the real app's
 	// localStorage, auth.json, or logs. Must run before the lock check.
-	if (process.env.LH_DEV_URL) {
+	if (process.env.LH_DESKTOP_DEV === "1") {
 		app.setPath("userData", `${app.getPath("userData")}-dev`);
 	}
 
@@ -130,7 +133,11 @@ if (process.argv.includes("--browser-service")) {
 				win.focus();
 			}
 		});
-		main();
+		main().catch((error) => {
+			log(`startup failed: ${error.message}`);
+			dialog.showErrorBox(PRODUCT_NAME, error.message);
+			app.quit();
+		});
 	}
 }
 
@@ -141,6 +148,7 @@ let subscriptions = null;
 let subscriptionChild = null;
 // Per-launch request capability, never OAuth tokens and never renderer state.
 let desktopAPISecret = null;
+let credentialKey = null;
 let reopenWindow = null;
 const trustedAppWindows = new Set();
 
@@ -200,19 +208,24 @@ function log(line) {
 
 function startServer(port) {
 	return new Promise((resolve, reject) => {
+		const development = process.env.LH_DESKTOP_DEV === "1" && !app.isPackaged;
 		const child = spawn(
 			process.execPath,
 			// Only the macOS backend needs this: Next's native title setter
 			// otherwise checks this Node-mode process in as a foreground app.
-			process.platform === "darwin"
+			development
+				? [path.join(__dirname, "dev-server.cjs")]
+				: process.platform === "darwin"
 				? ["--require", path.join(process.resourcesPath, "server-title-guard.cjs"), serverEntry()]
 				: [serverEntry()],
 			{
-				cwd: path.dirname(serverEntry()),
+				cwd: development ? path.join(__dirname, "..") : path.dirname(serverEntry()),
 				env: {
-					...process.env,
+					...desktopNetworkEnvironment(process.env),
 					ELECTRON_RUN_AS_NODE: "1",
-					NODE_ENV: "production",
+					NODE_ENV: development ? "development" : "production",
+					LH_CREDENTIAL_KEY: credentialKey,
+					NEXT_TELEMETRY_DISABLED: "1",
 					PORT: String(port),
 					HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
 					LH_DATA_DIR: DATA_DIR(),
@@ -220,6 +233,8 @@ function startServer(port) {
 					// (no env injection anymore: a spawn-time copy would shadow every
 					// settings-page key change until restart; env wins over file).
 					LH_AUTH_FILE: AUTH_FILE(),
+					// The fork uses only explicitly saved provider keys.
+					LH_IGNORE_ENV_KEYS: "1",
 					LH_DESKTOP_SERVER: "1",
 					LH_DESKTOP_API_SECRET: desktopAPISecret,
 				},
@@ -503,7 +518,13 @@ function installUpdateNow() {
 	autoUpdater?.quitAndInstall();
 }
 
-function setupAutoUpdater() {
+function setupAutoUpdater({ enabled = false } = {}) {
+	// No update source is trusted for the fork until signed releases are configured.
+	if (!enabled) {
+		log("Automatic updates are disabled in this fork; use reviewed macOS builds.");
+		reportUpdateStatus("disabled");
+		return;
+	}
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
 		reportUpdateStatus("disabled");
@@ -645,11 +666,13 @@ async function main() {
 	process.on("SIGHUP", killServer);
 
 	await app.whenReady();
+	if (process.platform !== "darwin") throw new Error("This fork currently supports macOS only.");
+	if (process.env.LH_DEV_URL) throw new Error("External development servers are disabled. Use npm run desktop:dev.");
+	configureDesktopNetwork();
+	credentialKey = await loadMasterKey(path.join(app.getPath("userData"), "credential-key.enc"), safeStorage);
 
-	// Dev mode: point at a running `next dev` server (LH_DEV_URL) — no
-	// spawn, no packaging, full HMR. The rest of this shell still applies
-	// (guards, menu, single instance).
-	const devUrl = process.env.LH_DEV_URL;
+	// Both development and packaged modes own their private loopback server.
+	const devUrl = undefined; // Every supported mode owns its private server.
 	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
 	if (!devUrl) {
 		desktopAPISecret = randomBytes(32).toString("hex");
@@ -659,7 +682,7 @@ async function main() {
 			callback({ requestHeaders: desktopAPIHeaders(details, ownedOrigin, desktopAPISecret, [...trustedAppWindows]) });
 		});
 		chatgpt = createChatGPT({
-			store: fileStore(path.join(app.getPath("userData"), "chatgpt-credentials.json")),
+			store: vaultStore(path.join(app.getPath("userData"), "chatgpt-credentials.json"), null, credentialKey),
 			openExternal: (target) => shell.openExternal(target),
 			onChange: (value) => {
 				chatgptChild?.send(value);
@@ -668,7 +691,10 @@ async function main() {
 		});
 		subscriptions = createSubscriptions({
 			directory: app.getPath("userData"),
-			loadSDK: () => loadSubscriptionSDK(path.dirname(serverEntry())),
+			stores: Object.fromEntries(["github-copilot", "xai"].map((id) => [id,
+				vaultStore(path.join(app.getPath("userData"), `${id}-credentials.json`), { version: 1, allowBackgroundUse: true }, credentialKey, (value) => validateSubscriptionState(id, value)),
+			])),
+			loadSDK: () => loadSubscriptionSDK(process.env.LH_DESKTOP_DEV === "1" ? path.join(__dirname, "..") : path.dirname(serverEntry())),
 			openExternal: (target) => shell.openExternal(target),
 			onChange: (snapshot) => {
 				subscriptionChild?.send(snapshot);

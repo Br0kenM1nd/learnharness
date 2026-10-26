@@ -26,7 +26,13 @@ const publicError = (err) => ({
 	background: "ChatGPT background use is off in this app. Enable Allow background use for all ChatGPT accounts in Providers, or explicitly select an API-key model for that workload.",
 	catalog: "The ChatGPT account model catalog is unavailable. Retry the connection; no API-key fallback was used.",
 	expired: "The ChatGPT session expired. Reconnect in Providers.",
-	network: "ChatGPT could not be reached. Check your connection and try again.",
+	code_expired: "The ChatGPT authorization code was rejected or expired. Start a new sign-in attempt.",
+	region: "OpenAI rejected the connection because its network location is unsupported. Check the configured proxy route.",
+	forbidden: "OpenAI denied this request (HTTP 403). Check account or workspace access and the configured proxy route.",
+	unauthorized: "OpenAI rejected the request (HTTP 401). Start a new sign-in attempt.",
+	ineligible: "This ChatGPT account or workspace is not eligible for plan use. Check ChatGPT settings.",
+	usage_limit: "ChatGPT plan usage limit reached. Manage usage in ChatGPT.",
+	network: "ChatGPT could not be reached through the configured proxy. Check its connection and try again.",
 	pending: "A ChatGPT sign-in is already pending.",
 	unavailable: "ChatGPT sign-in is unavailable in browser-only mode.",
 }[err?.code] || "ChatGPT sign-in failed. Try again; no API-key fallback was used.");
@@ -213,7 +219,12 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 			if (!response.ok) {
 				const body = await response.json().catch(() => ({}));
 				const oauthCode = typeof body.error === "string" ? body.error : body.error?.code;
-				throw Object.assign(fail(oauthCode === "invalid_grant" || response.status === 401 || response.status === 403 ? "expired" : "network"), { oauthCode });
+				const code = oauthCode === "unsupported_country_region_territory" ? "region"
+					: oauthCode === "subscription_sharing_user_not_eligible" ? "ineligible"
+					: oauthCode === "subscription_sharing_usage_limit_exceeded" ? "usage_limit"
+					: oauthCode === "invalid_grant" ? "expired"
+					: response.status === 401 ? "unauthorized" : response.status === 403 ? "forbidden" : "network";
+				throw Object.assign(fail(code), { oauthCode });
 			}
 			return await response.json();
 		} catch (err) { throw err.code ? err : fail("network"); }
@@ -304,6 +315,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 					try { body = await grant({ grant_type: "authorization_code", client_id: clientId, code: params.get("code"), code_verifier: verifier, redirect_uri: redirectUri }, AbortSignal.any([abort.signal, AbortSignal.timeout(15000)])); }
 					catch (err) {
 						if (err.oauthCode === "invalid_grant" && !selected?.subject) retryRegistration = { clientId };
+						if (err.oauthCode === "invalid_grant") throw fail("code_expired");
 						throw err;
 					}
 					if (typeof body.id_token !== "string") throw fail("identity");

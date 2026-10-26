@@ -13,7 +13,7 @@ const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url))
 const mainSource = readFileSync(mainFile, "utf8");
 const mainRequire = createRequire(mainFile);
 
-function fixture({ packaged = true, updaterMissing = false } = {}) {
+function fixture({ packaged = true, updaterMissing = false, legacyUpdater = true } = {}) {
 	let settings: string | Error = JSON.stringify({ version: 1, general: { autoUpdate: true } });
 	const settingsReads: string[] = [];
 	const order: string[] = [];
@@ -82,11 +82,14 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		app, BrowserWindow: FakeWindow,
 		Menu: { buildFromTemplate: (value: typeof menu) => value, setApplicationMenu: (value: typeof menu) => { menu = value; } },
 		ipcMain: { on() {}, handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
-		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
+		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, webRequest: { onBeforeSendHeaders() {} } } },
 	};
 	const context = createContext({
 		require: (id: string) => {
 			if (id === "electron") return electron;
+			if (id === "./credential-vault.cjs") return { loadMasterKey: async () => "a".repeat(64), vaultStore: () => ({}) };
+			if (id === "./chatgpt.cjs") return { createChatGPT: () => ({ pause() {}, resume() {}, close() {} }) };
+			if (id === "./subscriptions.cjs") return { createSubscriptions: () => ({ ready: Promise.resolve(), pause() {}, resume() {}, close() {} }) };
 			if (id === "electron-updater") {
 				if (updaterMissing) throw new Error("missing updater");
 				return { autoUpdater: updater };
@@ -96,11 +99,11 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 					settingsReads.push(file);
 					if (settings instanceof Error) throw settings;
 					return settings;
-				}, mkdirSync() {}, appendFileSync() {},
+				}, mkdirSync() {}, appendFileSync() {}, existsSync: () => false,
 			};
 			return mainRequire(id);
 		},
-		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
+		process: { resourcesPath: "/fixture/resources", argv: [], env: { LH_DESKTOP_DEV: "1" }, platform: "darwin", on() {} },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
@@ -108,6 +111,8 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 	});
 	runInContext(mainSource, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
+	run("freePort = async () => 9000; startServer = async () => {}; waitUntilUp = async () => {};");
+	if (legacyUpdater) run("setupAutoUpdater = ((original) => () => original({ enabled: true }))(setupAutoUpdater)");
 	return {
 		run, updater, windows, intervals, handles, settingsReads, order, app,
 		setSettings: (value: unknown) => { settings = JSON.stringify(value); },
@@ -124,7 +129,7 @@ describe("automatic-update preference gate", () => {
 	it("explicit OFF skips automatic checks, but manual checks still run without reading the preference", async () => {
 		const f = fixture();
 		f.setSettings({ general: { autoUpdate: false } });
-		f.run("setupAutoUpdater()");
+		f.run("setupAutoUpdater({ enabled: true })");
 		await f.check();
 		assert.equal(f.updater.checks, 0);
 		assert.deepEqual(f.settingsReads, ["/fixture/custom-user-data-dev/data/settings.json"]);
@@ -140,19 +145,19 @@ describe("automatic-update preference gate", () => {
 		["absent section", { version: 1 }], ["null", null], ["non-boolean", { general: { autoUpdate: "false" } }],
 	] as const) {
 		it(`${label} keeps automatic checks enabled`, async () => {
-			const f = fixture(); f.setSettings(setting); f.run("setupAutoUpdater()"); await f.check();
+			const f = fixture(); f.setSettings(setting); f.run("setupAutoUpdater({ enabled: true })"); await f.check();
 			assert.equal(f.updater.checks, 1);
 		});
 	}
 	for (const [label, failure] of [["missing", new Error("ENOENT")], ["unreadable", new Error("EACCES")], ["corrupt", "{nope"]] as const) {
 		it(`${label} settings keep automatic checks enabled`, async () => {
-			const f = fixture(); f.setSettingsFailure(failure); f.run("setupAutoUpdater()"); await f.check();
+			const f = fixture(); f.setSettingsFailure(failure); f.run("setupAutoUpdater({ enabled: true })"); await f.check();
 			assert.equal(f.updater.checks, 1);
 		});
 	}
 
 	it("re-reads the setting on each check, without triggering a check merely when saved", async () => {
-		const f = fixture(); f.run("setupAutoUpdater()");
+		const f = fixture(); f.run("setupAutoUpdater({ enabled: true })");
 		f.setSettings({ general: { autoUpdate: false } }); await f.check();
 		f.setSettings({ general: { autoUpdate: true } });
 		assert.equal(f.updater.checks, 0);
@@ -165,7 +170,7 @@ describe("automatic-update preference gate", () => {
 	for (const label of ["unpackaged", "missing updater"] as const) {
 		it(`${label} stays unavailable, not a saved OFF preference`, async () => {
 			const f = fixture({ packaged: label !== "unpackaged", updaterMissing: label === "missing updater" });
-			f.run("setupAutoUpdater()"); await f.check(true); await f.check();
+			f.run("setupAutoUpdater({ enabled: true })"); await f.check(true); await f.check();
 			assert.equal(f.updater.checks, 0);
 			assert.equal(f.settingsReads.length, 0);
 			assert.equal(f.state().status, "disabled");
@@ -175,7 +180,7 @@ describe("automatic-update preference gate", () => {
 
 describe("status observation never controls the updater", () => {
 	it("reports events, but a staged update stays visible without suppressing future checks", async () => {
-		const f = fixture(); const win = f.window(); f.run("setupAutoUpdater()");
+		const f = fixture(); const win = f.window(); f.run("setupAutoUpdater({ enabled: true })");
 		f.updater.emit("checking-for-update"); assert.equal(f.state().status, "checking");
 		f.updater.emit("update-available", { version: "0.3.8" });
 		assert.equal(f.state().status, "downloading"); assert.equal(f.state().version, "0.3.8");
@@ -193,13 +198,13 @@ describe("status observation never controls the updater", () => {
 
 	for (const status of ["checking", "downloading", "error", "disabled", "downloaded"]) {
 		it(`a ${status} display state does not block a future automatic check`, async () => {
-			const f = fixture(); f.run(`setupAutoUpdater(); reportUpdateStatus("${status}")`); await f.check();
+			const f = fixture(); f.run(`setupAutoUpdater({ enabled: true }); reportUpdateStatus("${status}")`); await f.check();
 			assert.equal(f.updater.checks, 1);
 		});
 	}
 
 	it("check failures settle to a generic error and later checks still run", async () => {
-		const f = fixture(); f.run("setupAutoUpdater()");
+		const f = fixture(); f.run("setupAutoUpdater({ enabled: true })");
 		f.updater.failure = new Error("private endpoint/diagnostic detail"); await f.check();
 		assert.equal(f.state().status, "error");
 		assert.ok(!JSON.stringify(f.state()).includes("private"));
@@ -208,13 +213,13 @@ describe("status observation never controls the updater", () => {
 	});
 
 	it("a declined check makes no up-to-date claim", async () => {
-		const f = fixture(); f.updater.result = null; f.run("setupAutoUpdater()"); await f.check(true);
+		const f = fixture(); f.updater.result = null; f.run("setupAutoUpdater({ enabled: true })"); await f.check(true);
 		assert.equal(f.state().status, "idle");
 	});
 
 	it("window enumeration/send failures do not break checks or the next window's notification", async () => {
 		const f = fixture(); const bad = f.window(); bad.webContents.fails = true; const good = f.window();
-		f.run("setupAutoUpdater()"); await f.check();
+		f.run("setupAutoUpdater({ enabled: true })"); await f.check();
 		assert.equal(good.webContents.messages.at(-1)!.channel, "lh:update-status");
 		f.setEnumerationFailure(true); await f.check();
 		f.setEnumerationFailure(false); await f.check();
@@ -222,7 +227,7 @@ describe("status observation never controls the updater", () => {
 	});
 
 	it("OFF does not cancel in-flight events or alter staging/install-on-quit; Restart kills server first", async () => {
-		const f = fixture(); f.run("setupAutoUpdater()");
+		const f = fixture(); f.run("setupAutoUpdater({ enabled: true })");
 		f.updater.emit("update-available", { version: "0.3.8" });
 		f.setSettings({ general: { autoUpdate: false } });
 		f.updater.emit("update-downloaded", { version: "0.3.8" }); await f.check();
@@ -296,4 +301,13 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		f.windows[0]!.webContents.fails = true; f.windows[0]!.webContents.loading = false;
 		f.menuCheck(); assert.equal(f.updater.checks, 1);
 	});
+});
+
+it("fork boot policy does not initialize or download from an update feed", async () => {
+	const f = fixture({ legacyUpdater: false });
+	f.run("setupAutoUpdater()");
+	await f.check(true);
+	assert.equal(f.state().status, "disabled");
+	assert.equal(f.updater.checks, 0);
+	assert.equal(f.updater.autoDownload, false);
 });

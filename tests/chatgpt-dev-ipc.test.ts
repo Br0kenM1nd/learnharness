@@ -1,3 +1,4 @@
+import { writeRecord } from "../electron/credential-vault.cjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import fs from "node:fs";
@@ -6,7 +7,7 @@ import path from "node:path";
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-dev-ipc-"));
 process.env.LH_DATA_DIR = scratch;
 process.env.LH_AUTH_FILE = path.join(scratch, "auth.json");
-fs.writeFileSync(process.env.LH_AUTH_FILE, "{}", { mode: 0o600 });
+writeRecord(process.env.LH_AUTH_FILE, {});
 process.env.OPENAI_API_KEY = "sk-fixture-not-used-for-generation";
 const { GET } = await import("../app/api/models/route.ts");
 const { chatGPTRequest, chatGPTConnected, chatGPTModels } = await import("../src/agent/chatgpt-bridge.ts");

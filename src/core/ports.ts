@@ -213,8 +213,8 @@ export interface PromptOverrideStore {
  * too (src/server/keys.ts). Unknown vars ride along verbatim.
  */
 export interface AuthStore {
-	/** The whole map — absent or corrupt file = {} ("no keys yet", the
-	 *  documented first-boot state). Never throws. */
+	/** The whole map. An absent file is empty; corrupt or unprotected stores
+	 * throw so that credentials cannot be silently lost or overwritten. */
 	authVars(): Record<string, string>;
 	/** Set one VAR (atomic write, mode 0600 always, other vars preserved). */
 	setAuthVar(name: string, value: string): void;

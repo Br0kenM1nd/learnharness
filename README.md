@@ -1,3 +1,23 @@
+# LearnHarness Fork — macOS
+
+This fork restricts agents to explicitly supplied learning material, protects
+provider credentials with macOS Keychain, and disables executable demonstrations
+and automatic updates. It uses a separate **LearnHarness Fork** data directory.
+
+The owner-confirmed VPS proxy endpoint is pinned in
+[`electron/network-config.json`](electron/network-config.json) to
+`http://127.0.0.1:7890`. Keep the local proxy client running; outbound Node
+connections fail when it is unavailable rather than falling back to a direct route.
+
+`npm run test:desktop:dev` checks the real Next.js development worker, private
+account/model IPC, model selection, and config restart using a temporary profile
+and artificial credentials. It makes no AI generation requests.
+
+See [fork setup, security changes, and verification](docs/security-hardening.md).
+The upstream project and its original author are described below.
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/lh_banner_dark.png">
@@ -40,17 +60,15 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
 
-## Download and get started
+## Get started with the fork
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
-
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+This fork currently targets macOS and is distributed as source. Follow the
+[macOS setup](docs/security-hardening.md#run-on-macos). Upstream installers from
+learnharness.ai and the original repository do not contain these changes.
 
 Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
 
-All three platforms support in-app updates.
+Automatic updates are disabled until this fork has a reviewed signing and release configuration.
 
 ## Your keys, your data
 
@@ -62,9 +80,10 @@ All three platforms support in-app updates.
 ## Development and support
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
-npm test           # deterministic, no LLM, no network
+npm ci --ignore-scripts
+node node_modules/electron/install.js
+npm run desktop:dev # macOS app with its own private local server
+npm test            # deterministic; use Node 24 or 26
 ```
 
 See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).

@@ -3,6 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import type { JobRecord } from "../../core/contracts.ts";
 import type { JobStore } from "../../core/ports.ts";
+import { restrictAgentTools } from "../capabilities.ts";
 
 /**
  * Async sub-agent job tools (vision §2.5; W2/W6 kinds + the pi-model
@@ -129,6 +130,12 @@ const PDF_DESCRIPTION =
  * existing user-toggle filtering still applies outside this registry.
  */
 export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
+	return restrictAgentTools(jobToolDefinitions(ctx));
+}
+
+/** Internal dispatch definitions; application registries must use jobTools.
+ * Kept separately so dispatch mechanics can be tested with fake workers. */
+export function jobToolDefinitions(ctx: JobToolContext): Record<string, AgentTool<any>> {
 	return {
 		research: {
 			name: "research",

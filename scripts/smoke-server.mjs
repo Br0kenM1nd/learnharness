@@ -33,6 +33,8 @@ import * as http from "node:http";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
+import { writeRecord } from "../electron/credential-vault.cjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const STANDALONE = path.join(ROOT, ".next", "standalone");
@@ -44,6 +46,7 @@ const POLL_MS = 500;
 const BOOT_TIMEOUT_MS = 30_000;
 /** GET-only probes — the routes that exercised today's failure class. */
 const PROBES = ["/api/graph", "/api/models", "/api/settings"];
+const capability = randomBytes(32).toString("hex");
 
 if (!fs.existsSync(SERVER)) {
 	console.error("[smoke-server] .next/standalone/server.js missing — run next build first.");
@@ -63,9 +66,9 @@ function freePort() {
 }
 
 /** One GET; resolves the status code (0 = connection refused/failed). */
-function get(url) {
+function get(url, authorized = true) {
 	return new Promise((resolve) => {
-		const req = http.get(url, (res) => {
+		const req = http.get(url, { headers: authorized ? { "x-learnharness-desktop": capability } : {} }, (res) => {
 			res.resume();
 			resolve(res.statusCode ?? 0);
 		});
@@ -88,7 +91,8 @@ async function main() {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-smoke-"));
 	const dataDir = path.join(home, "data");
 	const authFile = path.join(home, "auth.json");
-	fs.writeFileSync(authFile, "{}\n", "utf-8");
+	const credentialKey = randomBytes(32).toString("hex");
+	writeRecord(authFile, {}, credentialKey);
 
 	const tail = []; // rolling log tail for failure diagnosis
 	let tailBytes = 0;
@@ -118,6 +122,9 @@ async function main() {
 			HOSTNAME: "127.0.0.1",
 			LH_DATA_DIR: dataDir,
 			LH_AUTH_FILE: authFile,
+			LH_CREDENTIAL_KEY: credentialKey,
+			LH_DESKTOP_SERVER: "1",
+			LH_DESKTOP_API_SECRET: capability,
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -159,6 +166,11 @@ async function main() {
 		}
 		if (boot !== 200) throw new Error(`server never answered 200 on ${url} (last status: ${boot})`);
 		console.log(`[smoke-server] boot ok: GET / → 200 (${url})`);
+		for (const route of ["/", "/chat/new", ...PROBES]) {
+			const status = await get(url + route, false);
+			if (status !== 403) throw new Error(`Unauthorized GET ${route} → ${status} (expected 403)`);
+			console.log(`[smoke-server] unauthorized GET ${route} → 403`);
+		}
 
 		// 2) API surface: every probe must be 200.
 		for (const route of PROBES) {

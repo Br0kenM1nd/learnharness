@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { writeRecord } from "../electron/credential-vault.cjs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -46,7 +47,7 @@ describe("AuthStore adapter", () => {
 	});
 
 	it("set preserves unknown vars verbatim (forward-compat)", () => {
-		fs.writeFileSync(AUTH_FILE, JSON.stringify({ FUTURE_PLANS_TOKEN: "opaque-xyz", KEEP: "me" }));
+		writeRecord(AUTH_FILE, { FUTURE_PLANS_TOKEN: "opaque-xyz", KEEP: "me" });
 		authStore.setAuthVar("OPENROUTER_API_KEY", "sk-or-v1-new");
 		const vars = authStore.authVars();
 		assert.equal(vars.FUTURE_PLANS_TOKEN, "opaque-xyz");
@@ -54,17 +55,20 @@ describe("AuthStore adapter", () => {
 		assert.equal(vars.OPENROUTER_API_KEY, "sk-or-v1-new");
 	});
 
-	it("corrupt/non-object file = {} — never throws, looks like first boot", () => {
+	it("corrupt or invalid records fail closed without destroying credentials", () => {
 		fs.writeFileSync(AUTH_FILE, "{not json");
-		assert.deepEqual(authStore.authVars(), {});
-		fs.writeFileSync(AUTH_FILE, JSON.stringify(["an", "array"]));
-		assert.deepEqual(authStore.authVars(), {});
-		fs.writeFileSync(AUTH_FILE, JSON.stringify({ OK: "fine", bad: 42 }));
-		assert.deepEqual(authStore.authVars(), { OK: "fine" }, "non-string values drop");
+		assert.throws(() => authStore.authVars(), /could not be decrypted/);
+		assert.throws(() => authStore.setAuthVar("A", "new"), /could not be decrypted/);
+		assert.equal(fs.readFileSync(AUTH_FILE, "utf8"), "{not json");
+		fs.unlinkSync(AUTH_FILE);
+		writeRecord(AUTH_FILE, ["an", "array"]);
+		assert.throws(() => authStore.authVars(), /Invalid credential store/);
+		fs.unlinkSync(AUTH_FILE);
+		writeRecord(AUTH_FILE, {});
 	});
 
 	it("delete removes just that var; absent delete = silent no-op", () => {
-		fs.writeFileSync(AUTH_FILE, JSON.stringify({ A: "1", B: "2" }));
+		writeRecord(AUTH_FILE, { A: "1", B: "2" });
 		authStore.deleteAuthVar("A");
 		assert.deepEqual(authStore.authVars(), { B: "2" });
 		authStore.deleteAuthVar("NOT_THERE");

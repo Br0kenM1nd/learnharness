@@ -63,6 +63,29 @@ async function loggedIn(options: Parameters<typeof fixture>[0] = {}) {
 	return f;
 }
 
+for (const [label, status, error, expected] of [
+	["unsupported network location", 403, "unsupported_country_region_territory", /network location is unsupported.*proxy/],
+	["nested region error", 403, { code: "unsupported_country_region_territory", message: "secret server details" }, /network location is unsupported.*proxy/],
+	["account eligibility", 403, "subscription_sharing_user_not_eligible", /not eligible/],
+	["usage limit", 429, "subscription_sharing_usage_limit_exceeded", /usage limit/],
+	["other forbidden response", 403, "access_denied", /HTTP 403/],
+	["unauthorized response", 401, "invalid_client", /HTTP 401/],
+	["rejected fresh code", 400, "invalid_grant", /authorization code was rejected or expired/],
+] as const) {
+	test(`sign-in reports ${label} without claiming an established session expired or exposing server details`, async () => {
+		const f = fixture({ token: async () => Response.json({ error }, { status }) });
+		try {
+			await f.service.login(); await f.callback(); await f.changed.promise;
+			const result = await f.service.status();
+			assert.match(result.error, expected);
+			assert(!result.error.includes("session expired"));
+			assert(!result.error.includes("secret server details"));
+			assert.equal(f.saved.activeId, null);
+			assert.equal(f.saved.registrations.length, 0);
+		} finally { f.service.close(); }
+	});
+}
+
 test("PKCE/state/nonce/host identity and exact ephemeral 127.0.0.1 callback; no secret renderer snapshot", async () => {
 	const f = fixture();
 	try {

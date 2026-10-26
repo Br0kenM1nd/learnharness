@@ -1,3 +1,4 @@
+import { writeRecord } from "../electron/credential-vault.cjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -13,9 +14,9 @@ import { buildSubagentSteer, type JobKind, type SteerMessage } from "../src/core
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-job-delivery-"));
 process.env.LH_DATA_DIR = path.join(directory, "data");
 process.env.LH_AUTH_FILE = path.join(directory, "auth.json");
-fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
+writeRecord(process.env.LH_AUTH_FILE, {});
 const { stores } = await import("../src/server/stores.ts");
-const { jobTools } = await import("../src/agent/tools/jobs.ts");
+const { jobToolDefinitions: jobTools } = await import("../src/agent/tools/jobs.ts");
 const { createJobRunner, researchModelOverride } = await import("../src/agent/subagents/runner.ts");
 const { isJobLive } = await import("../src/agent/subagents/aborts.ts");
 const { beginTurn, endTurn } = await import("../src/server/turn-liveness.ts");
@@ -288,7 +289,7 @@ test("fresh process restores a pending delivery on registration without a jobs p
 	`;
 	const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
 		cwd: process.cwd(), encoding: "utf8", timeout: 15000,
-		env: { PATH: process.env.PATH, HOME: path.join(directory, "home"), NODE_ENV: "test", LH_DATA_DIR: process.env.LH_DATA_DIR, LH_AUTH_FILE: process.env.LH_AUTH_FILE },
+		env: { PATH: process.env.PATH, HOME: path.join(directory, "home"), NODE_ENV: "test", ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE, LH_CREDENTIAL_KEY: process.env.LH_CREDENTIAL_KEY, LH_DATA_DIR: process.env.LH_DATA_DIR, LH_AUTH_FILE: process.env.LH_AUTH_FILE },
 	});
 	assert.equal(child.status, 0, child.stderr);
 	assert.deepEqual(JSON.parse(child.stdout.trim()), [steer.id]);

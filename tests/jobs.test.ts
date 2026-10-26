@@ -506,7 +506,7 @@ describe("dispatch (async protocol §2)", () => {
 
 		const delivery = fakeDeliver();
 		const search = stubSearch();
-		const testRunner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
+		const testRunner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
 		const engine = researchCallingTeacher();
 		const tools = createTeacherTools({
 			chatId: chat.id,
@@ -606,7 +606,7 @@ describe("research runner (async protocol §3)", () => {
 
 		const delivery = fakeDeliver();
 		const search = stubSearch();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
 		researchModelOverride.current = researcherModel();
 		try {
 			await runner.runJob(job.id);
@@ -639,7 +639,7 @@ describe("research runner (async protocol §3)", () => {
 		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-keyless" });
 		trackJob(job.id);
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => null });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => null });
 		const fetched: string[] = [];
 		const realFetch = globalThis.fetch;
 		globalThis.fetch = (async (source) => {
@@ -675,7 +675,7 @@ describe("research runner (async protocol §3)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver });
 		researchModelOverride.current = fauxEngine([
 			() => {
 				throw new Error("model exploded");
@@ -705,7 +705,7 @@ describe("research runner (async protocol §3)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({
+		const runner = createJobRunner({ jobAllowed: () => true,
 			chatStore,
 			jobStore,
 			deliver: delivery.deliver,
@@ -771,7 +771,7 @@ describe("pdf runner (sources v0)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver });
 		pdfModelOverride.current = pdfReaderModel();
 		try {
 			await runner.runJob(job.id);
@@ -806,7 +806,7 @@ describe("pdf runner (sources v0)", () => {
 			const job = jobStore.createJob({ kind: "pdf", chatId: chat.id, toolCallId });
 			trackJob(job.id);
 			const delivery = fakeDeliver();
-			const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
+			const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver });
 			pdfModelOverride.current = pdfReaderModel();
 			try {
 				await runner.runJob(job.id, mode === "dispatch" ? input : undefined);
@@ -850,7 +850,7 @@ describe("pdf runner (sources v0)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver });
 		pdfModelOverride.current = pdfReaderModel();
 		try {
 			await runner.runJob(job.id, { path: badPath, question: "anything" });
@@ -1483,17 +1483,17 @@ describe("prompt composition", () => {
 	it("the sources-v0 prompt lines compose: read/pdf doctrine in the teacher, the read line in the prober", () => {
 		const teacher = composeInstructions("teacher");
 		assert.ok(teacher.includes("Learner source files"), "the teacher carries the source-files section");
-		assert.ok(teacher.includes("brief with page citations"), "the pdf brief's citation duty is stated");
+		assert.ok(teacher.includes("notes imported into the knowledge graph"), "the pdf brief's citation duty is stated");
 		const prober = composeInstructions("prober");
-		assert.ok(prober.includes("the `read` tool can inspect it directly"), "the prober knows it can read learner files");
+		assert.ok(prober.includes("ask him to provide the relevant passage"), "the prober knows it can read learner files");
 	});
 
 	it("the sources-v1 shared fragment composes into BOTH agents (find/ls/grep doctrine)", () => {
 		for (const kind of ["teacher", "prober"] as const) {
 			const instructions = composeInstructions(kind);
 			assert.ok(instructions.includes("## Learner files"), `${kind} carries the shared learner-files fragment`);
-			assert.ok(instructions.includes("find it yourself with `find`"), `${kind} knows to locate files itself`);
-			assert.ok(instructions.includes("home directory"), `${kind} knows the home-anchored path rule`);
+			assert.ok(instructions.includes("cannot open local file paths"), `${kind} knows to locate files itself`);
+			assert.ok(instructions.includes("explicitly provides"), `${kind} knows the home-anchored path rule`);
 		}
 		// the agent's OWN fragments compose before the shared appendix
 		// (the reorder's order rule, 2026-09-27: job and method lead)
@@ -1581,7 +1581,7 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 			return 200;
 		});
 		researchModelOverride.current = hangingModel();
-		const runner = createJobRunner({
+		const runner = createJobRunner({ jobAllowed: () => true,
 			chatStore,
 			jobStore,
 			deliver: async () => {
@@ -1620,7 +1620,7 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 		const { jobId } = newChatWithResearchJob("abort keeps usage", "call-abort2");
 		setTurnRunner(async () => 200);
 		researchModelOverride.current = oneStepThenHangModel();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: async () => {}, searchProvider: () => stubSearch() });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: async () => {}, searchProvider: () => stubSearch() });
 		try {
 			const settled = runner.runJob(jobId, RESEARCH_INPUT);
 			await waitFor(() => (jobStore.getJob(jobId)!.usage?.steps ?? 0) === 1, 8000, "first step folded");
@@ -1785,7 +1785,7 @@ describe("BYOK job refusal (no factory floor)", () => {
 		const delivery = fakeDeliver();
 		// NO test override, NO engineFor: the chain (override → slot → floor)
 		// comes up empty — the runner must refuse honestly, not fall back.
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
+		const runner = createJobRunner({ jobAllowed: () => true, chatStore, jobStore, deliver: delivery.deliver });
 		await runner.runJob(job.id);
 
 		const done = jobStore.getJob(job.id)!;
@@ -1824,7 +1824,7 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		// engine's provider + the kind's slot tier, exactly as wired.
 		const engine = fauxEngine([]);
 		const seen: Array<[string, ModelSlotName]> = [];
-		const runner = createJobRunner({
+		const runner = createJobRunner({ jobAllowed: () => true,
 			chatStore,
 			jobStore,
 			deliver: delivery.deliver,

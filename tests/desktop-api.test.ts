@@ -27,7 +27,6 @@ test("desktop capability injects only trusted app mainframe exact-origin API req
 	for (const mutation of [
 		{ url: "https://thirdparty.invalid/api/settings" },
 		{ url: "http://127.0.0.1:12346/api/settings" },
-		{ url: `${origin}/chat/new` },
 		{ frame: { url: `${origin}/chat/new` } }, // forged frame identity
 		{ frame: { url: "about:srcdoc", parent: mainFrame } },
 		{ frame: null },
@@ -46,14 +45,14 @@ test("desktop capability injects only trusted app mainframe exact-origin API req
 });
 
 test("all methods fail closed for desktop missing/wrong secret; API-only matcher covers SSE/settings/spending", () => {
-	assert(desktopAPIAuthorized(new Headers(), {}), "browser-only API-key mode unchanged");
+	assert(!desktopAPIAuthorized(new Headers(), {}), "standalone browser mode fails closed");
 	assert(!desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1" }), "missing server secret must not disable authorization");
 	for (const value of [undefined, "", "wrong", secret + ", " + secret]) {
 		assert(!desktopAPIAuthorized(new Headers(value === undefined ? {} : { [HEADER]: value }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
 	}
 	assert(desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
 	for (const pathname of ["/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + pathname }));
-	assert(!unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
+	assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
 	const originalMarker = process.env.LH_DESKTOP_SERVER;
 	const originalSecret = process.env.LH_DESKTOP_API_SECRET;
 	try {
@@ -77,6 +76,15 @@ test("renderer controls route explicit account forgetting and account-independen
 	assert.deepEqual(forgotten, ["fixture-account"]); assert.deepEqual(changes, [false]);
 	for (const command of [{ op: "disconnect" }, { op: "disconnect", id: 7 }, { op: "consent", enabled: "false" }]) assert.deepEqual(await chatGPTControl(command, connection), { error: "Unsupported ChatGPT control." });
 	assert.deepEqual(changes, [false]);
+});
+
+test("initial window navigation is authorized, while child-frame and non-navigation bootstrap requests are rejected", () => {
+	const { details, win, mainFrame } = fixture();
+	mainFrame.url = "about:blank";
+	const navigation = { ...details, url: origin + "/", resourceType: "mainFrame", initiatorOrigin: "null" };
+	assert.equal(desktopAPIHeaders(navigation, origin, secret, [win])[HEADER], secret);
+	assert.equal(desktopAPIHeaders({ ...navigation, resourceType: "xhr" }, origin, secret, [win])[HEADER], undefined);
+	assert.equal(desktopAPIHeaders({ ...navigation, frame: { url: "about:blank" } }, origin, secret, [win])[HEADER], undefined);
 });
 
 test("renderer controls have no lease or general token bridge, and require the trusted main frame", async () => {

@@ -21,6 +21,8 @@ env:
 jobs:
   quality:
     name: Release gates
+    # The fork has no approved signing or publishing configuration yet.
+    if: github.repository == 'amosblomqvist/learnharness'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
